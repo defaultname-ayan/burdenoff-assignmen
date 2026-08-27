@@ -97,11 +97,9 @@ function businessHoursAgo(from: Date, hours: number, calendar: BusinessCalendar)
 
 async function main(): Promise<void> {
   console.log('Seeding...');
-  await prisma.ticketEvent.deleteMany();
-  await prisma.comment.deleteMany();
-  await prisma.ticket.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.holiday.deleteMany();
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE "TicketEvent", "Comment", "Ticket", "User", "Holiday" RESTART IDENTITY CASCADE',
+  );
 
   const passwordHash = await hashPassword(PASSWORD);
 
