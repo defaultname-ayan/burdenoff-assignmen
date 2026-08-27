@@ -1,0 +1,19 @@
+{
+  "name": "support-ticket-sla-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Support Ticket & SLA Tracker - Bun + GraphQL Yoga + Prisma + PostgreSQL + React",
+  "scripts": {
+    "setup": "bun install --cwd server && bun install --cwd web",
+    "gendb": "cd server && bun run gendb",
+    "dev": "bun run dev:all",
+    "dev:all": "(cd server && bun run dev) & (cd web && bun run dev) & wait",
+    "dev:server": "cd server && bun run dev",
+    "dev:web": "cd web && bun run dev",
+    "seed": "cd server && bun run seed",
+    "test": "cd server && bun run test",
+    "test:integration": "cd server && bun run test:integration",
+    "test:all": "cd server && bun run test:all",
+    "typecheck": "cd server && bun run typecheck && cd ../web && bun run typecheck"
+  }
+}
