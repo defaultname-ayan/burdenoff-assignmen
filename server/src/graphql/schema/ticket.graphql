@@ -1,0 +1,117 @@
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SLAState {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+  MET
+}
+
+enum TicketSortOrder {
+  NEWEST
+  OLDEST
+  PRIORITY
+  SLA_DUE
+}
+
+type SLAClock {
+  dueAt: String!
+  atRiskAt: String!
+  state: SLAState!
+  remainingMinutes: Int!
+  completed: Boolean!
+  completedAt: String
+  budgetMinutes: Int!
+}
+
+type SLAInfo {
+  firstResponse: SLAClock!
+  resolution: SLAClock!
+  overallState: SLAState!
+  firstResponseDueAt: String!
+  resolutionDueAt: String!
+  firstResponseState: SLAState!
+  resolutionState: SLAState!
+  firstResponseRemainingMinutes: Int!
+  resolutionRemainingMinutes: Int!
+}
+
+type Comment {
+  id: ID!
+  content: String!
+  author: User!
+  ticket: Ticket!
+  createdAt: String!
+}
+
+type TicketEvent {
+  id: ID!
+  type: String!
+  fromValue: String
+  toValue: String
+  createdAt: String!
+}
+
+type Ticket {
+  id: ID!
+  number: Int!
+  title: String!
+  description: String!
+  priority: Priority!
+  status: TicketStatus!
+  reporter: User!
+  assignee: User
+  createdAt: String!
+  updatedAt: String!
+  firstResponseAt: String
+  resolvedAt: String
+  sla: SLAInfo!
+  comments: [Comment!]!
+  events: [TicketEvent!]!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}
+
+type TicketConnection {
+  nodes: [Ticket!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type TicketDashboard {
+  openTickets: Int!
+  inProgressTickets: Int!
+  resolvedTickets: Int!
+  atRiskTickets: Int!
+  breachedTickets: Int!
+  unassignedTickets: Int!
+  totalTickets: Int!
+}
+
+type Holiday {
+  id: ID!
+  date: String!
+  name: String!
+}
+
+type BusinessCalendarInfo {
+  timeZone: String!
+  startHour: Int!
+  endHour: Int!
+  workingWeekdays: [Int!]!
+}

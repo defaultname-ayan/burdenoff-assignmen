@@ -1,0 +1,37 @@
+{
+  "name": "sla-tracker-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "start": "bun src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "gendb": "prisma generate && prisma migrate deploy && bun run seed",
+    "prisma:generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "bun prisma/seed.ts",
+    "test": "bun test tests/unit",
+    "test:integration": "DATABASE_URL=postgresql://sla:sla@localhost:5434/sla_tracker_test bunx prisma migrate deploy && bun test tests/integration",
+    "test:all": "bun run test && bun run test:integration"
+  },
+  "prisma": {
+    "seed": "bun prisma/seed.ts"
+  },
+  "dependencies": {
+    "@graphql-tools/schema": "^10.0.6",
+    "@prisma/client": "^5.22.0",
+    "graphql": "^16.9.0",
+    "graphql-yoga": "^5.7.0",
+    "jose": "^5.9.6",
+    "luxon": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.13",
+    "@types/luxon": "^3.4.2",
+    "prisma": "^5.22.0",
+    "typescript": "^5.6.3"
+  }
+}
