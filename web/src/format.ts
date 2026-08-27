@@ -1,4 +1,5 @@
 import type { SLAClock, SLAState } from '@/api/types';
+import { getBusinessDayMinutes } from '@/businessCalendar';
 
 export function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
@@ -17,9 +18,10 @@ export function formatRelative(iso: string): string {
 }
 
 export function formatBusinessDuration(minutes: number): string {
+  const perDay = getBusinessDayMinutes();
   const total = Math.abs(minutes);
-  const days = Math.floor(total / 540);
-  const hours = Math.floor((total % 540) / 60);
+  const days = Math.floor(total / perDay);
+  const hours = Math.floor((total % perDay) / 60);
   const mins = total % 60;
   const parts: string[] = [];
   if (days > 0) parts.push(`${days}d`);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Search, X } from 'lucide-react';
 import {
@@ -46,6 +46,7 @@ const PAGE_SIZE = 10;
 
 const REFRESH_MS = 30_000;
 const SEARCH_DEBOUNCE_MS = 300;
+const MAX_PAGE_SIZE = 50;
 
 interface Filters {
   status: TicketStatus | '';
@@ -95,29 +96,54 @@ export function TicketListPage(): JSX.Element {
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const latestRequest = useRef(0);
+  const loadedCount = useRef(0);
+
+  useEffect(() => {
+    loadedCount.current = tickets.length;
+  }, [tickets]);
 
   const query = useMemo<Filters>(
-    () => ({ ...filters, search: debouncedSearch }),
-    [filters, debouncedSearch],
+    () => ({
+      status: filters.status,
+      priority: filters.priority,
+      assigneeId: filters.assigneeId,
+      slaState: filters.slaState,
+      orderBy: filters.orderBy,
+      search: debouncedSearch,
+    }),
+    [
+      filters.status,
+      filters.priority,
+      filters.assigneeId,
+      filters.slaState,
+      filters.orderBy,
+      debouncedSearch,
+    ],
   );
 
-  const loadFirstPage = useCallback(async (): Promise<void> => {
-    setError(null);
-    try {
-      const [connection, summary] = await Promise.all([
-        fetchTickets(toVariables(query, null)),
-        fetchDashboard(),
-      ]);
-      setTickets(connection.nodes);
-      setPageInfo(connection.pageInfo);
-      setTotalCount(connection.totalCount);
-      setDashboard(summary);
-    } catch (caught) {
-      setError(caught);
-    } finally {
-      setLoading(false);
-    }
-  }, [query]);
+  const loadFirstPage = useCallback(
+    async (size: number = PAGE_SIZE): Promise<void> => {
+      const requestId = ++latestRequest.current;
+      setError(null);
+      try {
+        const [connection, summary] = await Promise.all([
+          fetchTickets({ ...toVariables(query, null), take: Math.min(size, MAX_PAGE_SIZE) }),
+          fetchDashboard(),
+        ]);
+        if (requestId !== latestRequest.current) return;
+        setTickets(connection.nodes);
+        setPageInfo(connection.pageInfo);
+        setTotalCount(connection.totalCount);
+        setDashboard(summary);
+      } catch (caught) {
+        if (requestId === latestRequest.current) setError(caught);
+      } finally {
+        if (requestId === latestRequest.current) setLoading(false);
+      }
+    },
+    [query],
+  );
 
   useEffect(() => {
     setLoading(true);
@@ -125,7 +151,10 @@ export function TicketListPage(): JSX.Element {
   }, [loadFirstPage]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void loadFirstPage(), REFRESH_MS);
+    const timer = window.setInterval(
+      () => void loadFirstPage(Math.max(PAGE_SIZE, loadedCount.current)),
+      REFRESH_MS,
+    );
     return () => window.clearInterval(timer);
   }, [loadFirstPage]);
 
@@ -140,7 +169,10 @@ export function TicketListPage(): JSX.Element {
     if (!pageInfo.hasNextPage) return;
     try {
       const connection = await fetchTickets(toVariables(query, pageInfo.endCursor));
-      setTickets((current) => [...current, ...connection.nodes]);
+      setTickets((current) => {
+        const seen = new Set(current.map((entry) => entry.id));
+        return [...current, ...connection.nodes.filter((entry) => !seen.has(entry.id))];
+      });
       setPageInfo(connection.pageInfo);
     } catch (caught) {
       setError(caught);

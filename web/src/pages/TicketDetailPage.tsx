@@ -33,8 +33,8 @@ import {
 import { describeClock, formatDateTime, formatRelative } from '@/format';
 
 const NEXT_STATUSES: Record<TicketStatus, TicketStatus[]> = {
-  OPEN: ['IN_PROGRESS', 'CLOSED'],
-  IN_PROGRESS: ['OPEN', 'CLOSED'],
+  OPEN: ['IN_PROGRESS'],
+  IN_PROGRESS: ['OPEN'],
   RESOLVED: ['OPEN', 'CLOSED'],
   CLOSED: ['OPEN'],
 };

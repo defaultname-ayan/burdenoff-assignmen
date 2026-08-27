@@ -108,6 +108,13 @@ export async function fetchHolidays(): Promise<Holiday[]> {
   return data.holidays;
 }
 
+export async function fetchBusinessCalendar(): Promise<{ startHour: number; endHour: number }> {
+  const data = await request<{ businessCalendar: { startHour: number; endHour: number } }>(
+    `query BusinessCalendar { businessCalendar { timeZone startHour endHour } }`,
+  );
+  return data.businessCalendar;
+}
+
 export async function fetchMe(): Promise<User | null> {
   const data = await request<{ me: User | null }>(`query Me { me { ${USER_FIELDS} } }`);
   return data.me;

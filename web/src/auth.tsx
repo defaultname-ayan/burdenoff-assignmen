@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getToken, setToken } from '@/api/client';
-import { fetchMe } from '@/api/operations';
+import { setBusinessDayMinutes } from '@/businessCalendar';
+import { fetchBusinessCalendar, fetchMe } from '@/api/operations';
 import type { User } from '@/api/types';
 
 interface AuthValue {
@@ -25,6 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       .then((user) => {
         if (user === null) setToken(null);
         setViewer(user);
+        if (user !== null) {
+          void fetchBusinessCalendar()
+            .then(({ startHour, endHour }) => setBusinessDayMinutes((endHour - startHour) * 60))
+            .catch(() => undefined);
+        }
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
@@ -37,6 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       signIn: (token, user) => {
         setToken(token);
         setViewer(user);
+        void fetchBusinessCalendar()
+          .then(({ startHour, endHour }) => setBusinessDayMinutes((endHour - startHour) * 60))
+          .catch(() => undefined);
       },
       signOut: () => {
         setToken(null);
