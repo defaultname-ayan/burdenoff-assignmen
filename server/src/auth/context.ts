@@ -30,7 +30,8 @@ export async function buildContext(request: Request): Promise<GraphQLContext> {
     }
   }
 
-  return { prisma, viewer, users: createUserLoader(prisma), now: () => new Date() };
+  const requestNow = new Date();
+  return { prisma, viewer, users: createUserLoader(prisma), now: () => requestNow };
 }
 
 export function requireViewer(context: GraphQLContext): User {
