@@ -88,6 +88,11 @@ export const TicketEventResolvers = {
 
 export const UserResolvers = {
   createdAt: (user: User): string => iso(user.createdAt),
+  email: (user: User, _args: unknown, context: GraphQLContext): string | null => {
+    if (context.viewer === null) return null;
+    if (context.viewer.role === 'AGENT' || context.viewer.id === user.id) return user.email;
+    return null;
+  },
 };
 
 export const HolidayResolvers = {
