@@ -1,0 +1,50 @@
+type Query {
+  me: User
+
+  tickets(
+    status: TicketStatus
+    priority: Priority
+    assigneeId: ID
+    slaState: SLAState
+    search: String
+    orderBy: TicketSortOrder = NEWEST
+    take: Int = 20
+    cursor: String
+  ): TicketConnection!
+
+  ticket(id: ID!): Ticket
+
+  dashboard: TicketDashboard!
+
+  users(role: UserRole): [User!]!
+
+  holidays: [Holiday!]!
+
+  businessCalendar: BusinessCalendarInfo!
+}
+
+type Mutation {
+  register(
+    name: String!
+    email: String!
+    password: String!
+    role: UserRole!
+    agentCode: String
+  ): AuthPayload!
+
+  login(email: String!, password: String!): AuthPayload!
+
+  createTicket(title: String!, description: String!, priority: Priority!): Ticket!
+
+  assignTicket(ticketId: ID!, assigneeId: ID!): Ticket!
+
+  changeTicketStatus(ticketId: ID!, status: TicketStatus!): Ticket!
+
+  resolveTicket(ticketId: ID!): Ticket!
+
+  addComment(ticketId: ID!, content: String!): Comment!
+
+  createHoliday(date: String!, name: String!): Holiday!
+
+  deleteHoliday(id: ID!): Boolean!
+}
