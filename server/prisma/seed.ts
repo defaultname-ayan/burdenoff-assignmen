@@ -1,7 +1,11 @@
 import { PrismaClient, type Priority } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { hashPassword } from '../src/auth/password.js';
-import { createCalendar } from '../src/services/sla/businessHours.js';
+import {
+  createCalendar,
+  isWorkingDay,
+  type BusinessCalendar,
+} from '../src/services/sla/businessHours.js';
 import { computeTargets } from '../src/services/sla/slaEngine.js';
 import { config } from '../src/config/index.js';
 
@@ -63,25 +67,30 @@ const TICKETS: TicketSeed[] = [
   },
 ];
 
-function businessHoursAgo(from: Date, hours: number): Date {
+function businessHoursAgo(from: Date, hours: number, calendar: BusinessCalendar): Date {
   let remaining = hours * 60;
   let cursor = DateTime.fromJSDate(from, { zone: config.businessTimezone });
-  const { businessStartHour: open, businessEndHour: close } = config;
 
   for (let guard = 0; guard < 400 && remaining > 0; guard += 1) {
-    const isWorkday = cursor.weekday <= 5;
-    const dayOpen = cursor.startOf('day').set({ hour: open });
-    const dayClose = cursor.startOf('day').set({ hour: close });
+    const dayOpen = cursor.startOf('day').set({ hour: config.businessStartHour });
+    const dayClose = cursor.startOf('day').set({ hour: config.businessEndHour });
+    const isWorking = isWorkingDay(cursor, calendar);
 
-    if (!isWorkday || cursor <= dayOpen) {
-      cursor = cursor.minus({ days: 1 }).startOf('day').set({ hour: close });
+    if (!isWorking || cursor <= dayOpen) {
+      cursor = cursor.minus({ days: 1 }).startOf('day').set({ hour: config.businessEndHour });
       continue;
     }
+    if (cursor > dayClose) {
+      cursor = dayClose;
+      continue;
+    }
+
     const usable = Math.min(remaining, cursor.diff(dayOpen, 'minutes').minutes);
     cursor = cursor.minus({ minutes: usable });
     remaining -= usable;
-    if (remaining > 0) cursor = cursor.minus({ days: 1 }).startOf('day').set({ hour: close });
-    void dayClose;
+    if (remaining > 0) {
+      cursor = cursor.minus({ days: 1 }).startOf('day').set({ hour: config.businessEndHour });
+    }
   }
   return cursor.toJSDate();
 }
@@ -133,7 +142,7 @@ async function main(): Promise<void> {
   const now = new Date();
 
   for (const [index, seed] of TICKETS.entries()) {
-    const createdAt = businessHoursAgo(now, seed.agedBusinessHours);
+    const createdAt = businessHoursAgo(now, seed.agedBusinessHours, calendar);
     const targets = computeTargets(seed.priority, createdAt, calendar);
     const ticketReporter = index % 2 === 0 ? reporter : secondReporter;
 
