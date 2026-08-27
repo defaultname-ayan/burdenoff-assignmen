@@ -19,7 +19,6 @@ export async function getDashboard(context: GraphQLContext): Promise<TicketDashb
   const scope: Prisma.TicketWhereInput = viewer.role === 'AGENT' ? {} : { reporterId: viewer.id };
 
   const and = (extra: Prisma.TicketWhereInput): Prisma.TicketWhereInput => ({ AND: [scope, extra] });
-  const active: Prisma.TicketWhereInput = { status: { in: ['OPEN', 'IN_PROGRESS'] } };
 
   const [openTickets, inProgressTickets, resolvedTickets, atRiskTickets, breachedTickets, unassignedTickets, totalTickets] =
     await Promise.all([
@@ -27,10 +26,10 @@ export async function getDashboard(context: GraphQLContext): Promise<TicketDashb
       context.prisma.ticket.count({ where: and({ status: 'IN_PROGRESS' }) }),
       context.prisma.ticket.count({ where: and({ status: 'RESOLVED' }) }),
       context.prisma.ticket.count({
-        where: { AND: [scope, active, slaStateWhere(context.prisma, 'AT_RISK', now)] },
+        where: { AND: [scope, slaStateWhere(context.prisma, 'AT_RISK', now)] },
       }),
       context.prisma.ticket.count({
-        where: { AND: [scope, active, slaStateWhere(context.prisma, 'BREACHED', now)] },
+        where: { AND: [scope, slaStateWhere(context.prisma, 'BREACHED', now)] },
       }),
       context.prisma.ticket.count({ where: and({ assigneeId: null, status: { not: 'CLOSED' } }) }),
       context.prisma.ticket.count({ where: scope }),
