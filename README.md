@@ -298,23 +298,24 @@ rewritten). The calendar is cached in-process for 60s and invalidated on every e
 ## Status transition rules
 
 ```
-        ┌──────────────► CLOSED ──────┐
-        │                  ▲          │ (reopen)
-        │                  │          ▼
-     OPEN ◄────────► IN_PROGRESS ► RESOLVED
-        ▲                              │
-        └──────────── (reopen) ────────┘
+  OPEN ◄──────► IN_PROGRESS ──────► RESOLVED ──────► CLOSED
+    ▲                                   │               │
+    └───────────── (reopen) ─────────────┴───────────────┘
 ```
 
 | From          | May become                       |
 | ------------- | -------------------------------- |
-| `OPEN`        | `IN_PROGRESS`, `RESOLVED`, `CLOSED` |
-| `IN_PROGRESS` | `OPEN`, `RESOLVED`, `CLOSED`     |
+| `OPEN`        | `IN_PROGRESS`, `RESOLVED`        |
+| `IN_PROGRESS` | `OPEN`, `RESOLVED`               |
 | `RESOLVED`    | `CLOSED`, `OPEN` *(reopen)*      |
 | `CLOSED`      | `OPEN` *(reopen only)*           |
 
 - `CLOSED → IN_PROGRESS` is rejected: a closed ticket must be explicitly reopened first.
+- A ticket must be `RESOLVED` before it can be `CLOSED`, so `resolvedAt` is always a real
+  timestamp and the resolution clock always stops when work on a ticket ends.
 - A transition to the status a ticket already has is rejected.
+- Status and assignee writes are guarded on the value that was read, so two agents acting on
+  the same ticket at once cannot interleave into a corrupt row — the loser gets `CONFLICT`.
 - **Reopening** (`RESOLVED`/`CLOSED` → `OPEN`) clears `resolvedAt` and restarts the
   *resolution* budget from the reopen instant. Without this a reopened ticket would be
   permanently breached the moment it came back. The first-response clock is deliberately
@@ -349,6 +350,10 @@ Every rule is enforced server-side, in the services, never in the UI:
 A reporter requesting someone else's ticket gets **`null` / `TICKET_NOT_FOUND`**, not
 `FORBIDDEN` — a "forbidden" would confirm the ticket exists.
 
+`User.email` is nullable and resolved per-viewer: agents see addresses, and a reporter only
+ever sees their own. Without that, a reporter could read every agent's email through
+`Ticket.assignee { email }` despite the user directory being agent-only.
+
 ---
 
 ## Error codes
@@ -361,6 +366,7 @@ itself keep their own code too. Only genuine crashes are logged server-side and 
 | Code                        | Raised when                                            |
 | --------------------------- | ------------------------------------------------------ |
 | `VALIDATION_ERROR`          | empty/oversized field, bad email, weak password, bad date |
+| `CONFLICT`                  | the ticket changed underneath a concurrent status/assignee write |
 | `BAD_USER_INPUT`            | malformed query or an out-of-enum value, caught by GraphQL itself |
 | `INVALID_PRIORITY`          | priority outside the enum                              |
 | `INVALID_COMMENT`           | empty comment body                                     |
@@ -371,7 +377,6 @@ itself keep their own code too. Only genuine crashes are logged server-side and 
 | `FORBIDDEN`                 | authenticated but not allowed                          |
 | `INVALID_STATUS_TRANSITION` | transition not permitted by the state machine          |
 | `INVALID_CURSOR`            | malformed pagination cursor                            |
-| `CONFLICT`                  | reserved for concurrency conflicts                     |
 
 The UI shows the code alongside the message, so validation and authorization failures are
 always visible rather than silently swallowed.
@@ -504,9 +509,17 @@ query Dashboard { dashboard { openTickets inProgressTickets atRiskTickets breach
 - **The holiday calendar is global.** No per-team or per-customer calendars.
 - **Timestamps are `String` in the schema**, ISO-8601 by construction, rather than a
   custom scalar — one fewer client-side dependency for a small API.
-- **Pagination uses Prisma's `cursor` on `id`** with a deterministic multi-key ordering.
+- **Pagination is keyset-based**: the cursor decodes to a ticket, and the next page is
+  selected with an explicit `(sortKey, id)` comparison rather than Prisma's `cursor` +
+  `skip: 1`. The offset form silently drops a row whenever the cursor ticket stops matching
+  the filter between two requests, which the `slaState` filter can cause on its own.
   Changing sort order invalidates an existing cursor, which the UI handles by resetting
   to the first page.
+- **`remainingMinutes` on a *completed* clock is recomputed on read.** The clock's *state*
+  is frozen permanently, but the "with 2d to spare" figure is derived from the live holiday
+  calendar, so retroactively adding a holiday between the completion and the deadline shifts
+  that number. Persisting it at completion would need two more columns; the state — which is
+  what the brief requires to stay frozen — never moves.
 - **The frontend polls every 30s** instead of subscribing. Countdowns are recomputed by
   the server on each poll — the client never runs business-hour maths.
 - **UI primitives are hand-written rather than pulled from Radix.** The app needs a button,
