@@ -69,6 +69,70 @@ describe('cursor pagination', () => {
     expect(new Set(seen).size).toBe(7);
   });
 
+  it('does not skip a row when the cursor ticket leaves the filter set', async () => {
+    const first: ListResult = expectData(
+      await gql<ListResult>(LIST, { take: 3, status: 'OPEN', orderBy: 'NEWEST' }, agent.token),
+    );
+    const cursor = first.tickets.pageInfo.endCursor;
+    const cursorTicket = first.tickets.nodes.at(-1);
+    expect(cursor).not.toBeNull();
+    expect(cursorTicket).toBeDefined();
+
+    await prisma.ticket.update({
+      where: { id: cursorTicket?.id ?? '' },
+      data: { status: 'RESOLVED' },
+    });
+
+    const second: ListResult = expectData(
+      await gql<ListResult>(
+        LIST,
+        { take: 3, status: 'OPEN', orderBy: 'NEWEST', cursor },
+        agent.token,
+      ),
+    );
+
+    const all: ListResult = expectData(
+      await gql<ListResult>(LIST, { take: 50, status: 'OPEN', orderBy: 'NEWEST' }, agent.token),
+    );
+    const expectedAfterCursor = all.tickets.nodes
+      .slice(first.tickets.nodes.length - 1)
+      .map((node) => node.id);
+
+    expect(second.tickets.nodes.map((node) => node.id)).toEqual(expectedAfterCursor.slice(0, 3));
+
+    await prisma.ticket.update({
+      where: { id: cursorTicket?.id ?? '' },
+      data: { status: 'OPEN' },
+    });
+  });
+
+  it('reports the full filtered count regardless of the cursor position', async () => {
+    const page: ListResult = expectData(
+      await gql<ListResult>(LIST, { take: 2, orderBy: 'NEWEST' }, agent.token),
+    );
+    const next: ListResult = expectData(
+      await gql<ListResult>(
+        LIST,
+        { take: 2, orderBy: 'NEWEST', cursor: page.tickets.pageInfo.endCursor },
+        agent.token,
+      ),
+    );
+    expect(next.tickets.totalCount).toBe(page.tickets.totalCount);
+  });
+
+  it('treats % and _ in the search box as literal characters', async () => {
+    const wildcard: ListResult = expectData(
+      await gql<ListResult>(LIST, { take: 50 }, agent.token),
+    );
+    const percent = await gql<ListResult>(
+      `query S($search: String) { tickets(search: $search, take: 50) { totalCount nodes { id number title priority status sla { overallState } } pageInfo { hasNextPage endCursor } } }`,
+      { search: '%' },
+      agent.token,
+    );
+    expect(expectData(percent).tickets.totalCount).toBe(0);
+    expect(wildcard.tickets.totalCount).toBeGreaterThan(0);
+  });
+
   it('rejects a malformed cursor rather than returning junk', async () => {
     const result = await gql(LIST, { take: 3, cursor: 'not-a-real-cursor' }, agent.token);
     expect(result.errorCode).not.toBeNull();

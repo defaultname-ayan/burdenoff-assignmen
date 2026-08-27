@@ -275,6 +275,43 @@ describe('assignment and authorization', () => {
     expect(expectData(asAgent).ticket?.id).toBe(ticket.id);
   });
 
+  it('does not expose other users email addresses to a reporter', async () => {
+    const ticket = await createTicket(reporter.token, { title: 'Email exposure check' });
+    await gql(
+      `mutation A($ticketId: ID!, $assigneeId: ID!) { assignTicket(ticketId: $ticketId, assigneeId: $assigneeId) { id } }`,
+      { ticketId: ticket.id, assigneeId: agent.id },
+      agent.token,
+    );
+
+    const asReporter = expectData(
+      await gql<{ ticket: { assignee: { name: string; email: string | null } | null } }>(
+        `query T($id: ID!) { ticket(id: $id) { assignee { name email } } }`,
+        { id: ticket.id },
+        reporter.token,
+      ),
+    );
+    expect(asReporter.ticket.assignee?.name).toBe('Asha Menon');
+    expect(asReporter.ticket.assignee?.email).toBeNull();
+
+    const asAgent = expectData(
+      await gql<{ ticket: { assignee: { email: string | null } | null } }>(
+        `query T($id: ID!) { ticket(id: $id) { assignee { email } } }`,
+        { id: ticket.id },
+        agent.token,
+      ),
+    );
+    expect(asAgent.ticket.assignee?.email).toBe('agent@test.local');
+
+    const own = expectData(
+      await gql<{ me: { email: string | null } | null }>(
+        `query { me { email } }`,
+        {},
+        reporter.token,
+      ),
+    );
+    expect(own.me?.email).toBe('reporter@test.local');
+  });
+
   it('keeps the user directory agent-only', async () => {
     const result = await gql(`query { users(role: AGENT) { id } }`, {}, reporter.token);
     expect(result.errorCode).toBe('FORBIDDEN');
@@ -337,32 +374,32 @@ describe('status transitions', () => {
 
     expect(after.status).toBe('OPEN');
     expect(after.resolvedAt).toBeNull();
-    expect(after.resolutionDueAt.getTime()).toBeGreaterThan(before.resolutionDueAt.getTime());
-
+    expect(after.slaStartedAt.getTime()).toBeGreaterThan(before.slaStartedAt.getTime());
+    expect(after.resolutionDueAt.getTime()).toBeGreaterThanOrEqual(before.resolutionDueAt.getTime());
     expect(after.firstResponseDueAt.toISOString()).toBe(before.firstResponseDueAt.toISOString());
   });
 
-  it('stops the resolution clock when a ticket is closed without being resolved', async () => {
-    const ticket = await createTicket(reporter.token, { title: 'Closed without resolving' });
+  it('refuses to close a ticket that has not been resolved', async () => {
+    const ticket = await createTicket(reporter.token, { title: 'Close without resolving' });
 
-    const closed = await gql<{ changeTicketStatus: { status: string; resolvedAt: string | null } }>(
-      CHANGE,
-      { ticketId: ticket.id, status: 'CLOSED' },
-      agent.token,
-    );
-    expect(expectData(closed).changeTicketStatus.status).toBe('CLOSED');
+    const result = await gql(CHANGE, { ticketId: ticket.id, status: 'CLOSED' }, agent.token);
+    expect(result.errorCode).toBe('INVALID_STATUS_TRANSITION');
 
     const row = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
-    expect(row.resolvedAt).not.toBeNull();
+    expect(row.status).toBe('OPEN');
+    expect(row.resolvedAt).toBeNull();
+  });
 
-    const view = await gql<{ ticket: { sla: { resolution: { completed: boolean; state: string } } } }>(
-      `query T($id: ID!) { ticket(id: $id) { sla { resolution { completed state } } } }`,
-      { id: ticket.id },
-      agent.token,
-    );
-    const resolution = expectData(view).ticket.sla.resolution;
-    expect(resolution.completed).toBe(true);
-    expect(resolution.state).toBe('MET');
+  it('freezes the resolution clock once a ticket is resolved and closed', async () => {
+    const ticket = await createTicket(reporter.token, { title: 'Resolve then close' });
+    await gql(CHANGE, { ticketId: ticket.id, status: 'RESOLVED' }, agent.token);
+    const afterResolve = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+
+    await gql(CHANGE, { ticketId: ticket.id, status: 'CLOSED' }, agent.token);
+    const afterClose = await prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+
+    expect(afterClose.status).toBe('CLOSED');
+    expect(afterClose.resolvedAt?.toISOString()).toBe(afterResolve.resolvedAt?.toISOString() ?? '');
   });
 
   it('forbids a reporter from changing status', async () => {
