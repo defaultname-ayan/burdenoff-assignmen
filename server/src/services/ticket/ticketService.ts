@@ -33,6 +33,10 @@ export interface TicketPage {
   readonly totalCount: number;
 }
 
+function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 function encodeCursor(id: string): string {
   return Buffer.from(id, 'utf8').toString('base64url');
 }
@@ -49,6 +53,46 @@ function decodeCursor(cursor: string): string {
 
 function visibilityWhere(viewer: User): Prisma.TicketWhereInput {
   return viewer.role === 'AGENT' ? {} : { reporterId: viewer.id };
+}
+
+const PRIORITY_RANK: readonly Priority[] = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+
+function prioritiesBelow(priority: Priority): Priority[] {
+  return PRIORITY_RANK.slice(0, PRIORITY_RANK.indexOf(priority));
+}
+
+function keysetWhere(order: TicketSortOrder, cursor: Ticket): Prisma.TicketWhereInput {
+  switch (order) {
+    case 'NEWEST':
+      return {
+        OR: [
+          { createdAt: { lt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+        ],
+      };
+    case 'OLDEST':
+      return {
+        OR: [
+          { createdAt: { gt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+        ],
+      };
+    case 'SLA_DUE':
+      return {
+        OR: [
+          { resolutionDueAt: { gt: cursor.resolutionDueAt } },
+          { resolutionDueAt: cursor.resolutionDueAt, id: { gt: cursor.id } },
+        ],
+      };
+    case 'PRIORITY':
+      return {
+        OR: [
+          { priority: { in: prioritiesBelow(cursor.priority) } },
+          { priority: cursor.priority, createdAt: { gt: cursor.createdAt } },
+          { priority: cursor.priority, createdAt: cursor.createdAt, id: { gt: cursor.id } },
+        ],
+      };
+  }
 }
 
 function orderFor(order: TicketSortOrder): Prisma.TicketOrderByWithRelationInput[] {
@@ -81,7 +125,7 @@ export async function listTickets(
     conditions.push(slaStateWhere(context.prisma, filters.slaState, now));
   }
   if (filters.search != null && filters.search.trim() !== '') {
-    const term = filters.search.trim().slice(0, LIMITS.titleMax);
+    const term = escapeLike(filters.search.trim().slice(0, LIMITS.titleMax));
     conditions.push({
       OR: [
         { title: { contains: term, mode: 'insensitive' } },
@@ -90,28 +134,33 @@ export async function listTickets(
     });
   }
 
-  const where: Prisma.TicketWhereInput = { AND: conditions };
+  const order = filters.orderBy ?? 'NEWEST';
+  let keyset: Prisma.TicketWhereInput | null = null;
   const cursorId = filters.cursor != null && filters.cursor !== '' ? decodeCursor(filters.cursor) : null;
+
   if (cursorId !== null) {
-    const exists = await context.prisma.ticket.count({
+    const cursorRow = await context.prisma.ticket.findFirst({
       where: { AND: [visibilityWhere(viewer), { id: cursorId }] },
     });
-    if (exists === 0) {
+    if (cursorRow === null) {
       throw new AppError(ErrorCode.INVALID_CURSOR, 'The supplied cursor is not valid.', {
         field: 'cursor',
       });
     }
+    keyset = keysetWhere(order, cursorRow);
   }
+
+  const filterWhere: Prisma.TicketWhereInput = { AND: conditions };
+  const pageWhere: Prisma.TicketWhereInput =
+    keyset === null ? filterWhere : { AND: [...conditions, keyset] };
 
   const [rows, totalCount] = await Promise.all([
     context.prisma.ticket.findMany({
-      where,
-      orderBy: orderFor(filters.orderBy ?? 'NEWEST'),
+      where: pageWhere,
+      orderBy: orderFor(order),
       take: take + 1,
-
-      ...(cursorId !== null ? { cursor: { id: cursorId }, skip: 1 } : {}),
     }),
-    context.prisma.ticket.count({ where }),
+    context.prisma.ticket.count({ where: filterWhere }),
   ]);
 
   const hasNextPage = rows.length > take;
@@ -195,10 +244,16 @@ export async function assignTicket(
   if (ticket.assigneeId === assigneeId) return ticket;
 
   return context.prisma.$transaction(async (tx) => {
-    const updated = await tx.ticket.update({
-      where: { id: ticket.id },
+    const changed = await tx.ticket.updateMany({
+      where: { id: ticket.id, assigneeId: ticket.assigneeId, status: ticket.status },
       data: { assigneeId },
     });
+    if (changed.count === 0) {
+      throw new AppError(
+        ErrorCode.CONFLICT,
+        'This ticket was changed by someone else. Reload and try again.',
+      );
+    }
     await tx.ticketEvent.create({
       data: {
         ticketId: ticket.id,
@@ -208,7 +263,7 @@ export async function assignTicket(
         toValue: assigneeId,
       },
     });
-    return updated;
+    return tx.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
   });
 }
 
@@ -224,7 +279,7 @@ export async function changeTicketStatus(
   const now = context.now();
   const data: Prisma.TicketUpdateInput = { status };
 
-  if (status === 'RESOLVED' || status === 'CLOSED') {
+  if (status === 'RESOLVED') {
     data.resolvedAt = ticket.resolvedAt ?? now;
   }
 
@@ -237,7 +292,16 @@ export async function changeTicketStatus(
   }
 
   return context.prisma.$transaction(async (tx) => {
-    const updated = await tx.ticket.update({ where: { id: ticket.id }, data });
+    const changed = await tx.ticket.updateMany({
+      where: { id: ticket.id, status: ticket.status },
+      data,
+    });
+    if (changed.count === 0) {
+      throw new AppError(
+        ErrorCode.CONFLICT,
+        'This ticket was changed by someone else. Reload and try again.',
+      );
+    }
     await tx.ticketEvent.create({
       data: {
         ticketId: ticket.id,
@@ -247,7 +311,7 @@ export async function changeTicketStatus(
         toValue: status,
       },
     });
-    return updated;
+    return tx.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
   });
 }
 
