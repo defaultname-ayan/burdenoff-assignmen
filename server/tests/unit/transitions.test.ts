@@ -24,6 +24,12 @@ describe('status transitions', () => {
     );
   });
 
+  it('requires a ticket to be resolved before it can be closed', () => {
+    expect(canTransition('OPEN', 'CLOSED')).toBe(false);
+    expect(canTransition('IN_PROGRESS', 'CLOSED')).toBe(false);
+    expect(canTransition('RESOLVED', 'CLOSED')).toBe(true);
+  });
+
   it('only allows a reopen out of CLOSED', () => {
     expect(ALLOWED_TRANSITIONS.CLOSED).toEqual(['OPEN']);
     expect(canTransition('CLOSED', 'OPEN')).toBe(true);

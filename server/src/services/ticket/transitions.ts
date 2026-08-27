@@ -2,8 +2,8 @@ import type { TicketStatus } from '@prisma/client';
 import { InvalidStatusTransitionError } from '../../errors/index.js';
 
 export const ALLOWED_TRANSITIONS: Readonly<Record<TicketStatus, readonly TicketStatus[]>> = {
-  OPEN: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'],
-  IN_PROGRESS: ['OPEN', 'RESOLVED', 'CLOSED'],
+  OPEN: ['IN_PROGRESS', 'RESOLVED'],
+  IN_PROGRESS: ['OPEN', 'RESOLVED'],
   RESOLVED: ['OPEN', 'CLOSED'],
   CLOSED: ['OPEN'],
 };
